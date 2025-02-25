@@ -15,21 +15,50 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.*
-import androidx.compose.runtime.*
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
@@ -38,23 +67,24 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.rememberNavController
 import androidx.navigation.NavHostController
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
 import fr.isen.Bouhaben.isensmartcompanion.ui.theme.ISENSmartCompanionTheme
 import kotlinx.coroutines.delay
 import kotlinx.parcelize.Parcelize
+import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.GET
-import retrofit2.Retrofit
+
 
 
 
 //------------------------------------Structures------------------------------------
 @Parcelize
 data class Event(
-    val id: String, // ✅ Change to String to match JSON format
+    val id: String,
     val title: String,
     val description: String,
     val date: String,
@@ -130,75 +160,80 @@ fun MainScreen(navController: NavHostController) {
 
 @Composable
 fun AssistantUI(modifier: Modifier = Modifier) {
-    var question by remember { mutableStateOf(TextFieldValue()) }
-    var response by remember { mutableStateOf("Ask me anything!") }
-    var savedQuestion by remember { mutableStateOf("") }
-    var isButtonClicked by remember { mutableStateOf(false) }
-    var showQuestionSubmitted by remember { mutableStateOf(false) }
-    val scrollState = rememberScrollState()
+    var userInput by remember { mutableStateOf(TextFieldValue()) }
+    var chatMessages by remember { mutableStateOf<List<Pair<String, Boolean>>>(emptyList()) }
+
+    // Scroll state for LazyColumn
+    val listState = rememberLazyListState()
 
     Column(
-        modifier = modifier
+        modifier = Modifier
             .fillMaxSize()
             .padding(16.dp)
-            .verticalScroll(scrollState),
-        horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        // Chat Header
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(bottom = 32.dp),
-            horizontalArrangement = Arrangement.End,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Image(
-                painter = painterResource(id = R.drawable.isen_logo),
-                contentDescription = "ISEN Logo",
-                modifier = Modifier
-                    .size(100.dp)
-                    .padding(8.dp)
-            )
-        }
-
-        Column(
-            modifier = Modifier.fillMaxWidth(),
-            verticalArrangement = Arrangement.Center,
-            horizontalAlignment = Alignment.CenterHorizontally
+                .padding(bottom = 16.dp),
+            horizontalArrangement = Arrangement.Center
         ) {
             Text(
                 text = "ISEN BOT",
                 style = MaterialTheme.typography.headlineMedium,
                 color = Color(0xFFD32F2F)
             )
+        }
 
-            Spacer(modifier = Modifier.height(16.dp))
+        // Chat History (Scrollable, Auto-Scroll Enabled)
+        LazyColumn(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth(),
+            state = listState // Attach scroll state
+        ) {
+            items(chatMessages) { messagePair ->
+                val (message, isUser) = messagePair
+                ChatBubble(message = message, isUser = isUser)
+                Spacer(modifier = Modifier.height(8.dp))
+            }
+        }
 
+        // **✅ Auto-scroll effect placed outside onClick**
+        LaunchedEffect(chatMessages.size) {
+            if (chatMessages.isNotEmpty()) {
+                listState.animateScrollToItem(chatMessages.size - 1)
+            }
+        }
+
+        // User Input Box & Send Button (Pinned at Bottom)
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             OutlinedTextField(
-                value = question,
-                onValueChange = { question = it },
-                label = { Text("Ask a question", color = Color(0xFFB71C1C)) },
-                modifier = Modifier.fillMaxWidth(),
+                value = userInput,
+                onValueChange = { userInput = it },
+                label = { Text("Type your message") },
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(end = 8.dp),
                 colors = OutlinedTextFieldDefaults.colors(
                     focusedBorderColor = Color(0xFFD32F2F),
                     unfocusedBorderColor = Color(0xFFB71C1C),
-                    cursorColor = Color(0xFFD32F2F),
-                    focusedTextColor = Color.Black,
-                    unfocusedTextColor = Color.Black
+                    cursorColor = Color(0xFFD32F2F)
                 )
             )
 
-            Spacer(modifier = Modifier.height(16.dp))
-
             Button(
                 onClick = {
-                    isButtonClicked = !isButtonClicked
-                    if (question.text.isNotBlank()) {
-                        savedQuestion = question.text
-                        response = "You asked: ${question.text}"
-                        question = TextFieldValue("")
-                        showQuestionSubmitted = true
-                    } else {
-                        response = "Please enter a question."
+                    if (userInput.text.isNotBlank()) {
+                        val newMessages = chatMessages + Pair(userInput.text, true) // User message
+                        userInput = TextFieldValue("")
+
+                        chatMessages = newMessages + Pair("...", false) // Simulate AI response
                     }
                 },
                 colors = ButtonDefaults.buttonColors(
@@ -206,22 +241,35 @@ fun AssistantUI(modifier: Modifier = Modifier) {
                     contentColor = Color.White
                 )
             ) {
-                Text(text = if (showQuestionSubmitted) "Question Submitted" else "Send")
+                Text("Send")
             }
-
-            LaunchedEffect(showQuestionSubmitted) {
-                if (showQuestionSubmitted) {
-                    delay(3000)
-                    showQuestionSubmitted = false
-                }
-            }
-            Spacer(modifier = Modifier.height(16.dp))
-            Text(text = response, color = Color.DarkGray)
-            Spacer(modifier = Modifier.height(16.dp))
-
         }
     }
 }
+
+@Composable
+fun ChatBubble(message: String, isUser: Boolean) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = if (isUser) Arrangement.End else Arrangement.Start
+    ) {
+        Box(
+            modifier = Modifier
+                .background(
+                    color = if (isUser) Color(0xFFD32F2F) else Color(0xFFFFE5E5),
+                    shape = MaterialTheme.shapes.medium
+                )
+                .padding(12.dp)
+                .widthIn(max = 280.dp) // ✅ Ensures a max width without breaking layout
+        ) {
+            Text(
+                text = message,
+                color = if (isUser) Color.White else Color.Black
+            )
+        }
+    }
+}
+
 
 
 
