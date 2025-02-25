@@ -1,13 +1,14 @@
 package fr.isen.Bouhaben.isensmartcompanion
 
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.animation.*
-import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.WindowInsets
@@ -17,6 +18,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.input.TextFieldValue
@@ -30,7 +32,35 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import fr.isen.Bouhaben.isensmartcompanion.ui.theme.ISENSmartCompanionTheme
 import kotlinx.coroutines.delay
+import android.os.Parcelable
+import kotlinx.parcelize.Parcelize
+import androidx.compose.foundation.background
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.expandVertically
 
+
+
+
+@Parcelize
+data class Event(
+    val id: Int,
+    val title: String,
+    val description: String,
+    val date: String,
+    val location: String,
+    val category: String
+) : Parcelable
+
+
+val fakeEvents = listOf(
+    Event(1, "BDE Evening", "An evening organized by the BDE.", "2025-05-12", "ISEN Hall", "Social"),
+    Event(2, "Gala Night", "Annual Gala night for students and staff.", "2025-06-18", "Grand Ballroom", "Formal"),
+    Event(3, "Cohesion Day", "A day full of fun activities for new students.", "2025-09-10", "University Campus", "Team Building")
+)
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -43,6 +73,31 @@ class MainActivity : ComponentActivity() {
         }
     }
 }
+
+class EventDetailActivity : ComponentActivity() {
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+
+        // Retrieve the passed event object
+        val event = intent.getParcelableExtra<Event>("event")
+
+        setContent {
+            ISENSmartCompanionTheme {
+                if (event != null) {
+                    EventDetailScreen(event)
+                } else {
+                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(text = "Event not found", style = MaterialTheme.typography.headlineMedium)
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+
 
 @Composable
 fun MainScreen(navController: NavHostController) {
@@ -163,10 +218,192 @@ fun AssistantUI(modifier: Modifier = Modifier) {
 
 @Composable
 fun EventScreen() {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(text = "Event Page", style = MaterialTheme.typography.headlineMedium)
+    val context = LocalContext.current
+    var isVisible by remember { mutableStateOf(false) }
+
+    // Start animation when the screen is shown
+    LaunchedEffect(Unit) { isVisible = true }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.Top,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // Title animation
+        AnimatedVisibility(
+            visible = isVisible,
+            enter = fadeIn(animationSpec = tween(1000)) + slideInVertically(initialOffsetY = { -50 })
+        ) {
+            Text(
+                text = "Upcoming Events",
+                style = MaterialTheme.typography.headlineMedium,
+                color = Color(0xFFD32F2F),
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
+        }
+
+        LazyColumn(modifier = Modifier.fillMaxSize()) {
+            items(fakeEvents) { event ->
+                val backgroundColor = if (event.id % 2 == 0) Color(0xFFFFE5E5) else Color(0xFFFFCCCC)
+
+                AnimatedVisibility(
+                    visible = isVisible,
+                    enter = fadeIn(animationSpec = tween(500)) + slideInVertically(initialOffsetY = { 100 })
+                ) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 6.dp, horizontal = 8.dp)
+                            .clickable {
+                                val intent = Intent(context, EventDetailActivity::class.java)
+                                intent.putExtra("event", event)
+                                context.startActivity(intent)
+                            },
+                        colors = CardDefaults.cardColors(containerColor = backgroundColor),
+                        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 4.dp),
+                        shape = MaterialTheme.shapes.medium
+                    ) {
+                        Column(modifier = Modifier.padding(16.dp)) {
+                            Text(
+                                text = event.title,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = Color(0xFFD32F2F)
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = event.date,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color(0xFF880E4F)
+                            )
+                            Text(
+                                text = event.location,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = Color(0xFF880E4F)
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
+
+
+@Composable
+fun EventDetailScreen(event: Event) {
+    val context = LocalContext.current
+    var isVisible by remember { mutableStateOf(false) }
+
+    // Start animation when the screen is displayed
+    LaunchedEffect(Unit) { isVisible = true }
+
+    Column(
+        modifier = Modifier.fillMaxSize(),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // Header Section with Animation
+        AnimatedVisibility(
+            visible = isVisible,
+            enter = slideInVertically(initialOffsetY = { -it }) + fadeIn()
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color(0xFFD32F2F))
+                    .padding(vertical = 20.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = event.title,
+                    style = MaterialTheme.typography.headlineLarge,
+                    color = Color.White
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        // Event Details Card with Expand Animation
+        AnimatedVisibility(
+            visible = isVisible,
+            enter = expandVertically() + fadeIn()
+        ) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFE5E5)),
+                elevation = CardDefaults.elevatedCardElevation(defaultElevation = 6.dp),
+                shape = MaterialTheme.shapes.medium
+            ) {
+                Column(modifier = Modifier.padding(16.dp)) {
+                    DetailRow("📅 Date", event.date)
+                    DetailRow("📍 Location", event.location)
+                    DetailRow("🏷 Category", event.category)
+                    Spacer(modifier = Modifier.height(16.dp))
+                    Text(
+                        text = event.description,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = Color(0xFF880E4F)
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(24.dp))
+
+        // Back Button with Fade & Slide Animation
+        AnimatedVisibility(
+            visible = isVisible,
+            enter = fadeIn(animationSpec = tween(700)) + slideInVertically(initialOffsetY = { it / 2 })
+        ) {
+            Button(
+                onClick = {
+                    (context as? ComponentActivity)?.finish()
+                },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFFD32F2F),
+                    contentColor = Color.White
+                ),
+                modifier = Modifier.padding(horizontal = 16.dp)
+            ) {
+                Text(text = "Back to Events")
+            }
+        }
+    }
+}
+
+
+
+
+// Helper function for displaying event details with an icon and label
+@Composable
+fun DetailRow(label: String, value: String) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
+        horizontalArrangement = Arrangement.Start,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.bodyLarge,
+            color = Color(0xFFD32F2F),
+            modifier = Modifier.width(100.dp)
+        )
+        Text(
+            text = value,
+            style = MaterialTheme.typography.bodyLarge,
+            color = Color.Black
+        )
+    }
+}
+
+
+
 
 @Composable
 fun HistoryScreen() {
@@ -257,3 +494,4 @@ fun AssistantUIPreview() {
         MainScreen(navController)
     }
 }
+
