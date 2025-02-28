@@ -37,8 +37,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -55,6 +53,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -71,14 +70,13 @@ import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.google.ai.client.generativeai.GenerativeModel
 import fr.isen.Bouhaben.isensmartcompanion.ui.theme.ISENSmartCompanionTheme
-import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.parcelize.Parcelize
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.GET
-
-
 
 
 //------------------------------------Structures------------------------------------
@@ -111,6 +109,33 @@ object RetrofitInstance {
             .create(EventApiService::class.java)
     }
 }
+
+
+
+//------------------------------------AI------------------------------------
+
+
+object AiService {
+    private const val MODEL_NAME = "gemini-1.5-flash"
+
+    // Retrieve API key from BuildConfig
+    private val apiKey = "AIzaSyBzWIE_fDfWcqcvmVd3FoPs8OOw8ED3vBw" //super secure key cause i can't import it from local.proprieties
+
+    private val generativeModel = GenerativeModel(
+        modelName = MODEL_NAME,
+        apiKey = apiKey
+    )
+
+    suspend fun getAiResponse(input: String): String {
+        return try {
+            val response = generativeModel.generateContent(input)
+            response.text ?: "No response received"
+        } catch (e: Exception) {
+            "Error: ${e.message}"
+        }
+    }
+}
+
 
 
 
@@ -162,21 +187,19 @@ fun MainScreen(navController: NavHostController) {
 fun AssistantUI(modifier: Modifier = Modifier) {
     var userInput by remember { mutableStateOf(TextFieldValue()) }
     var chatMessages by remember { mutableStateOf<List<Pair<String, Boolean>>>(emptyList()) }
-
-    // Scroll state for LazyColumn
     val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        // Chat Header with ISEN Logo on the Top-Right
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(bottom = 16.dp),
-            horizontalArrangement = Arrangement.SpaceBetween, // Align text left & image right
+            horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
@@ -184,23 +207,20 @@ fun AssistantUI(modifier: Modifier = Modifier) {
                 style = MaterialTheme.typography.headlineMedium,
                 color = Color(0xFFD32F2F)
             )
-
-            // ISEN Logo
             Image(
-                painter = painterResource(id = R.drawable.isen_logo), // Ensure the correct name
+                painter = painterResource(id = R.drawable.isen_logo),
                 contentDescription = "ISEN Logo",
                 modifier = Modifier
-                    .size(80.dp) // Adjust size if needed
+                    .size(80.dp)
                     .padding(8.dp)
             )
         }
 
-        // Chat History (Scrollable, Auto-Scroll Enabled)
         LazyColumn(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth(),
-            state = listState // Attach scroll state
+            state = listState
         ) {
             items(chatMessages) { messagePair ->
                 val (message, isUser) = messagePair
@@ -209,14 +229,12 @@ fun AssistantUI(modifier: Modifier = Modifier) {
             }
         }
 
-        // **✅ Auto-scroll effect placed outside onClick**
         LaunchedEffect(chatMessages.size) {
             if (chatMessages.isNotEmpty()) {
                 listState.animateScrollToItem(chatMessages.size - 1)
             }
         }
 
-        // User Input Box & Send Button (Pinned at Bottom)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -240,10 +258,15 @@ fun AssistantUI(modifier: Modifier = Modifier) {
             Button(
                 onClick = {
                     if (userInput.text.isNotBlank()) {
-                        val newMessages = chatMessages + Pair(userInput.text, true) // User message
+                        val newMessages = chatMessages + Pair(userInput.text, true)
+                        chatMessages = newMessages
+                        val inputText = userInput.text
                         userInput = TextFieldValue("")
 
-                        chatMessages = newMessages + Pair("...", false) // Simulate AI response
+                        coroutineScope.launch {
+                            val aiResponse = AiService.getAiResponse(inputText)
+                            chatMessages = chatMessages + Pair(aiResponse, false)
+                        }
                     }
                 },
                 colors = ButtonDefaults.buttonColors(

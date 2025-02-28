@@ -13,19 +13,26 @@ android {
     namespace = "fr.isen.Bouhaben.isensmartcompanion"
     compileSdk = 35
 
-    defaultConfig {
-        applicationId = "fr.isen.Bouhaben.isensmartcompanion"
-        minSdk = 25
-        targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+    android {
+        defaultConfig {
+            applicationId = "fr.isen.Bouhaben.isensmartcompanion"
+            minSdk = 25
+            targetSdk = 35
+            versionCode = 1
+            versionName = "1.0"
 
-        testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+            testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+            // Inject API Key into BuildConfig
+            buildConfigField("String", "GOOGLE_AI_API_KEY", "\"${project.findProperty("GOOGLE_AI_API_KEY")}\"")
+        }
     }
+
 
     buildTypes {
         debug {
             isMinifyEnabled = false
+            buildConfigField("String", "GOOGLE_AI_API_KEY", project.findProperty("GOOGLE_AI_API_KEY")?.let { "\"$it\"" } ?: "\"\"")
         }
         release {
             isMinifyEnabled = false
@@ -33,6 +40,9 @@ android {
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
+            isMinifyEnabled = false
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            buildConfigField("String", "GOOGLE_AI_API_KEY", project.findProperty("GOOGLE_AI_API_KEY")?.let { "\"$it\"" } ?: "\"\"")
         }
     }
 
@@ -67,6 +77,11 @@ dependencies {
     implementation(libs.retrofit)
     implementation(libs.converter.gson)
     implementation(libs.play.services.tasks)
+
+    // ✅ Google AI Client SDK
+    // Ensure this version exists
+    implementation(libs.generativeai)
+
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
     androidTestImplementation(libs.androidx.espresso.core)
@@ -77,3 +92,5 @@ dependencies {
     implementation(libs.material3)
     implementation(libs.gson)
 }
+
+
