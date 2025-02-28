@@ -1,9 +1,9 @@
-//------------------------------------Packages------------------------------------
+// ------------------------------------ Package ------------------------------------
 package fr.isen.Bouhaben.isensmartcompanion
 
 
 
-//------------------------------------Imports------------------------------------
+// ------------------------------------ Imports ------------------------------------
 import android.content.Intent
 import android.os.Bundle
 import android.os.Parcelable
@@ -13,6 +13,7 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Image
@@ -50,6 +51,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -71,15 +73,31 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.google.ai.client.generativeai.GenerativeModel
+import fr.isen.Bouhaben.isensmartcompanion.database.ChatDatabase
+import fr.isen.Bouhaben.isensmartcompanion.database.ChatMessage
 import fr.isen.Bouhaben.isensmartcompanion.ui.theme.ISENSmartCompanionTheme
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.parcelize.Parcelize
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.GET
+import java.util.Date
 
 
-//------------------------------------Structures------------------------------------
+
+// ------------------------------------ Structures ------------------------------------
+/**
+ * Represents an event entity used throughout the app.
+ * This class is Parcelable, allowing it to be passed between activities.
+ *
+ * @property id Unique identifier of the event.
+ * @property title Event title.
+ * @property description Brief description of the event.
+ * @property date Date when the event takes place.
+ * @property location Event location.
+ * @property category Category of the event.
+ */
 @Parcelize
 data class Event(
     val id: String,
@@ -92,19 +110,39 @@ data class Event(
 
 
 
-//------------------------------------Internet------------------------------------
+// ------------------------------------ Internet API ------------------------------------
+
+/**
+ * Retrofit API service to fetch events from Firebase.
+ */
 interface EventApiService {
-    @GET("events.json") // Endpoint from Firebase
+
+    /**
+     * Fetches the list of events from the remote database.
+     *
+     * @return List of [Event] objects.
+     */
+    @GET("events.json")
     suspend fun getEvents(): List<Event>
 }
 
+/**
+ * Singleton object for managing the Retrofit instance.
+ * Ensures a single instance of [Retrofit] is used across the application.
+ */
 object RetrofitInstance {
+
+    // Base URL for Firebase Realtime Database
     private const val BASE_URL = "https://isen-smart-companion-default-rtdb.europe-west1.firebasedatabase.app/"
 
+    /**
+     * Lazy-initialized Retrofit instance with Gson converter.
+     * Provides an implementation of [EventApiService] for network requests.
+     */
     val api: EventApiService by lazy {
         Retrofit.Builder()
-            .baseUrl(BASE_URL)
-            .addConverterFactory(GsonConverterFactory.create())
+            .baseUrl(BASE_URL) // Set the base URL
+            .addConverterFactory(GsonConverterFactory.create()) // Convert JSON response to Kotlin objects
             .build()
             .create(EventApiService::class.java)
     }
@@ -112,25 +150,49 @@ object RetrofitInstance {
 
 
 
-//------------------------------------AI------------------------------------
+// ------------------------------------ AI Service ------------------------------------
 
-
+/**
+ * Singleton object responsible for handling AI interactions using Google's Generative AI model.
+ */
 object AiService {
+
+    // Model name used for AI processing
     private const val MODEL_NAME = "gemini-1.5-flash"
 
-    // Retrieve API key from BuildConfig
-    private val apiKey = "AIzaSyBzWIE_fDfWcqcvmVd3FoPs8OOw8ED3vBw" //super secure key cause i can't import it from local.proprieties
+    // API key retrieved from BuildConfig for security
+    private val apiKey = BuildConfig.GOOGLE_AI_API_KEY
 
+    /**
+     * Instance of [GenerativeModel] initialized with the provided API key.
+     */
     private val generativeModel = GenerativeModel(
         modelName = MODEL_NAME,
         apiKey = apiKey
     )
 
-    suspend fun getAiResponse(input: String): String {
+    /**
+     * Generates an AI response for the given user input.
+     * Saves the conversation (question & answer) to the local Room database.
+     *
+     * @param input The user input/question.
+     * @param database The Room database instance for storing chat history.
+     * @return The AI-generated response.
+     */
+    suspend fun getAiResponse(input: String, database: ChatDatabase): String {
         return try {
+            // Generate AI response
             val response = generativeModel.generateContent(input)
-            response.text ?: "No response received"
+            val aiResponse = response.text ?: "No response received"
+
+            // Save the conversation to Room Database
+            val message = ChatMessage(question = input, answer = aiResponse)
+            database.chatMessageDao().insertMessage(message)
+
+            // Return AI response
+            aiResponse
         } catch (e: Exception) {
+            // Handle API errors gracefully
             "Error: ${e.message}"
         }
     }
@@ -138,53 +200,80 @@ object AiService {
 
 
 
+// ------------------------------------ HOME SCREEN ------------------------------------
 
-//------------------------------------HOME------------------------------------
+/**
+ * The main entry point of the application.
+ * Handles navigation and initializes the Room database.
+ */
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
+
+        // Initialize Room Database
+        val database = ChatDatabase.getDatabase(this)
+
         setContent {
             ISENSmartCompanionTheme {
                 val navController = rememberNavController()
-                MainScreen(navController)
+                MainScreen(navController, database)
             }
         }
     }
 }
 
+/**
+ * Preview function to visualize the Assistant UI in Android Studio.
+ */
 @Preview(showBackground = true)
 @Composable
 fun AssistantUIPreview() {
     ISENSmartCompanionTheme {
         val navController = rememberNavController()
-        MainScreen(navController)
+        MainScreen(navController, database = TODO()) // TODO should be replaced with actual database instance in testing
     }
 }
 
+/**
+ * MainScreen manages the navigation between different screens.
+ *
+ * @param navController The navigation controller for switching between screens.
+ * @param database The Room database instance for chat history storage.
+ */
 @Composable
-fun MainScreen(navController: NavHostController) {
+fun MainScreen(navController: NavHostController, database: ChatDatabase) {
+    // Calculate bottom padding based on system navigation bars
     val bottomPadding = with(LocalDensity.current) {
         WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
-        containerColor = Color(0xFFFFF5F5),
+        containerColor = Color(0xFFFFF5F5), // Background color theme
         bottomBar = {
             BottomMenuBar(navController, bottomPadding)
         }
     ) { innerPadding ->
-        NavHost(navController, startDestination = "home", Modifier.padding(innerPadding)) {
-            composable("home") { AssistantUI() }
+        NavHost(
+            navController,
+            startDestination = "home",
+            Modifier.padding(innerPadding)
+        ) {
+            composable("home") { AssistantUI(database) }
             composable("event") { EventScreen() }
-            composable("history") { HistoryScreen() }
+            composable("history") { HistoryScreen(database) } // ✅ Pass database to history screen
         }
     }
 }
 
+/**
+ * Composable function for the main Assistant UI where users can chat with ISEN Bot.
+ *
+ * @param database The Room database instance for storing conversation history.
+ */
 @Composable
-fun AssistantUI(modifier: Modifier = Modifier) {
+fun AssistantUI(database: ChatDatabase) {
     var userInput by remember { mutableStateOf(TextFieldValue()) }
     var chatMessages by remember { mutableStateOf<List<Pair<String, Boolean>>>(emptyList()) }
     val listState = rememberLazyListState()
@@ -195,6 +284,7 @@ fun AssistantUI(modifier: Modifier = Modifier) {
             .fillMaxSize()
             .padding(16.dp)
     ) {
+        // ✅ Header Section: ISEN Bot Title & Logo
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -205,17 +295,20 @@ fun AssistantUI(modifier: Modifier = Modifier) {
             Text(
                 text = "ISEN BOT",
                 style = MaterialTheme.typography.headlineMedium,
-                color = Color(0xFFD32F2F)
+                color = Color(0xFFD32F2F) // ISEN Red Color
             )
+
+            // ✅ ISEN Logo
             Image(
-                painter = painterResource(id = R.drawable.isen_logo),
+                painter = painterResource(id = R.drawable.isen_logo), // Ensure the image exists in resources
                 contentDescription = "ISEN Logo",
                 modifier = Modifier
-                    .size(80.dp)
+                    .size(80.dp) // Adjust size if needed
                     .padding(8.dp)
             )
         }
 
+        // ✅ Chat History Display
         LazyColumn(
             modifier = Modifier
                 .weight(1f)
@@ -229,12 +322,7 @@ fun AssistantUI(modifier: Modifier = Modifier) {
             }
         }
 
-        LaunchedEffect(chatMessages.size) {
-            if (chatMessages.isNotEmpty()) {
-                listState.animateScrollToItem(chatMessages.size - 1)
-            }
-        }
-
+        // ✅ User Input & Send Button
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -255,6 +343,7 @@ fun AssistantUI(modifier: Modifier = Modifier) {
                 )
             )
 
+            // ✅ Send Button
             Button(
                 onClick = {
                     if (userInput.text.isNotBlank()) {
@@ -263,8 +352,9 @@ fun AssistantUI(modifier: Modifier = Modifier) {
                         val inputText = userInput.text
                         userInput = TextFieldValue("")
 
+                        // ✅ Fetch AI response and save to database
                         coroutineScope.launch {
-                            val aiResponse = AiService.getAiResponse(inputText)
+                            val aiResponse = AiService.getAiResponse(inputText, database)
                             chatMessages = chatMessages + Pair(aiResponse, false)
                         }
                     }
@@ -280,7 +370,12 @@ fun AssistantUI(modifier: Modifier = Modifier) {
     }
 }
 
-
+/**
+ * Composable function representing a single chat bubble in the conversation.
+ *
+ * @param message The message content.
+ * @param isUser Boolean flag to determine if the message is from the user (true) or AI (false).
+ */
 @Composable
 fun ChatBubble(message: String, isUser: Boolean) {
     Row(
@@ -290,7 +385,7 @@ fun ChatBubble(message: String, isUser: Boolean) {
         Box(
             modifier = Modifier
                 .background(
-                    color = if (isUser) Color(0xFFD32F2F) else Color(0xFFFFE5E5),
+                    color = if (isUser) Color(0xFFD32F2F) else Color(0xFFFFE5E5), // Red for user, light red for AI
                     shape = MaterialTheme.shapes.medium
                 )
                 .padding(12.dp)
@@ -306,14 +401,17 @@ fun ChatBubble(message: String, isUser: Boolean) {
 
 
 
+// ------------------------------------ EVENT SCREEN ------------------------------------
 
-//------------------------------------EVENT------------------------------------
+/**
+ * EventDetailActivity: Displays details of a selected event.
+ */
 class EventDetailActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         WindowCompat.setDecorFitsSystemWindows(window, false)
 
-        // Retrieve the passed event object
+        // Retrieve the passed event object from Intent
         val event = intent.getParcelableExtra<Event>("event")
 
         setContent {
@@ -322,7 +420,10 @@ class EventDetailActivity : ComponentActivity() {
                     EventDetailScreen(event)
                 } else {
                     Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                        Text(text = "Event not found", style = MaterialTheme.typography.headlineMedium)
+                        Text(
+                            text = "Event not found",
+                            style = MaterialTheme.typography.headlineMedium
+                        )
                     }
                 }
             }
@@ -330,14 +431,17 @@ class EventDetailActivity : ComponentActivity() {
     }
 }
 
-
+/**
+ * Displays the list of upcoming events.
+ * Fetches data from Firebase using Retrofit.
+ */
 @Composable
 fun EventScreen() {
     val context = LocalContext.current
     var events by remember { mutableStateOf<List<Event>?>(null) }
     var isVisible by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(true) }
-    var errorMessage by remember { mutableStateOf<String?>(null) } // Store error message
+    var errorMessage by remember { mutableStateOf<String?>(null) } // Store error messages
 
     // Fetch events when screen is first displayed
     LaunchedEffect(Unit) {
@@ -345,10 +449,10 @@ fun EventScreen() {
         try {
             val fetchedEvents = RetrofitInstance.api.getEvents()
             events = fetchedEvents
-            errorMessage = null // Reset error on success
+            errorMessage = null // Reset error message on success
         } catch (e: Exception) {
             e.printStackTrace()
-            errorMessage = "Failed to load events: ${e.message}" // Store error message
+            errorMessage = "Failed to load events: ${e.message}" // Display error
         } finally {
             isLoading = false
         }
@@ -361,7 +465,7 @@ fun EventScreen() {
         verticalArrangement = Arrangement.Top,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Title animation
+        // ✅ Title Animation
         AnimatedVisibility(
             visible = isVisible,
             enter = fadeIn(animationSpec = tween(1000)) + slideInVertically(initialOffsetY = { -50 })
@@ -369,61 +473,35 @@ fun EventScreen() {
             Text(
                 text = "Upcoming Events",
                 style = MaterialTheme.typography.headlineMedium,
-                color = Color(0xFFD32F2F),
+                color = Color(0xFFD32F2F), // ISEN Theme Red
                 modifier = Modifier.padding(bottom = 16.dp)
             )
         }
 
+        // ✅ Loading Indicator
         if (isLoading) {
             CircularProgressIndicator(color = Color(0xFFD32F2F))
-        } else if (errorMessage != null) {
-            // Display error message
+        }
+        // ✅ Error Handling
+        else if (errorMessage != null) {
             Text(text = errorMessage ?: "Unknown error", color = Color.Red)
-        } else if (events.isNullOrEmpty()) {
-            // No events found in response
+        }
+        // ✅ No Events Found
+        else if (events.isNullOrEmpty()) {
             Text(text = "No events available", color = Color.Gray)
-        } else {
-            // Display events
+        }
+        // ✅ Display Events List
+        else {
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 itemsIndexed(events!!) { index, event ->
-                    val backgroundColor = if (index % 2 == 0) Color(0xFFFFCCCC) else Color(0xFFFFE5E5) // Alternate colors
+                    val backgroundColor =
+                        if (index % 2 == 0) Color(0xFFFFCCCC) else Color(0xFFFFE5E5) // Alternate colors
 
                     AnimatedVisibility(
                         visible = isVisible,
                         enter = fadeIn(animationSpec = tween(500)) + slideInVertically(initialOffsetY = { 100 })
                     ) {
-                        Card(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 6.dp, horizontal = 8.dp)
-                                .clickable {
-                                    val intent = Intent(context, EventDetailActivity::class.java)
-                                    intent.putExtra("event", event)
-                                    context.startActivity(intent)
-                                },
-                            colors = CardDefaults.cardColors(containerColor = backgroundColor),
-                            elevation = CardDefaults.elevatedCardElevation(defaultElevation = 4.dp),
-                            shape = MaterialTheme.shapes.medium
-                        ) {
-                            Column(modifier = Modifier.padding(16.dp)) {
-                                Text(
-                                    text = event.title,
-                                    style = MaterialTheme.typography.titleMedium,
-                                    color = Color(0xFFD32F2F)
-                                )
-                                Spacer(modifier = Modifier.height(6.dp))
-                                Text(
-                                    text = event.date,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = Color(0xFF880E4F)
-                                )
-                                Text(
-                                    text = event.location,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = Color(0xFF880E4F)
-                                )
-                            }
-                        }
+                        EventCard(event, backgroundColor, context)
                     }
                 }
             }
@@ -431,6 +509,54 @@ fun EventScreen() {
     }
 }
 
+/**
+ * A single event card displaying event details.
+ *
+ * @param event The event data object.
+ * @param backgroundColor Background color for alternating effect.
+ * @param context The current context for navigation.
+ */
+@Composable
+fun EventCard(event: Event, backgroundColor: Color, context: android.content.Context) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp, horizontal = 8.dp)
+            .clickable {
+                val intent = Intent(context, EventDetailActivity::class.java)
+                intent.putExtra("event", event)
+                context.startActivity(intent)
+            },
+        colors = CardDefaults.cardColors(containerColor = backgroundColor),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 4.dp),
+        shape = MaterialTheme.shapes.medium
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = event.title,
+                style = MaterialTheme.typography.titleMedium,
+                color = Color(0xFFD32F2F) // ISEN Red
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = event.date,
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color(0xFF880E4F)
+            )
+            Text(
+                text = event.location,
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color(0xFF880E4F)
+            )
+        }
+    }
+}
+
+/**
+ * EventDetailScreen: Displays full details of a selected event.
+ *
+ * @param event The event data object.
+ */
 @Composable
 fun EventDetailScreen(event: Event) {
     val context = LocalContext.current
@@ -443,7 +569,7 @@ fun EventDetailScreen(event: Event) {
         modifier = Modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // Header Section with Animation
+        // ✅ Header Section with Animation
         AnimatedVisibility(
             visible = isVisible,
             enter = slideInVertically(initialOffsetY = { -it }) + fadeIn()
@@ -451,7 +577,7 @@ fun EventDetailScreen(event: Event) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(Color(0xFFD32F2F))
+                    .background(Color(0xFFD32F2F)) // ISEN Red
                     .padding(vertical = 20.dp),
                 contentAlignment = Alignment.Center
             ) {
@@ -465,7 +591,7 @@ fun EventDetailScreen(event: Event) {
 
         Spacer(modifier = Modifier.height(16.dp))
 
-        // Event Details Card with Expand Animation
+        // ✅ Event Details Card with Expand Animation
         AnimatedVisibility(
             visible = isVisible,
             enter = expandVertically() + fadeIn()
@@ -494,15 +620,13 @@ fun EventDetailScreen(event: Event) {
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // Back Button with Fade & Slide Animation
+        // ✅ Back Button with Animation
         AnimatedVisibility(
             visible = isVisible,
             enter = fadeIn(animationSpec = tween(700)) + slideInVertically(initialOffsetY = { it / 2 })
         ) {
             Button(
-                onClick = {
-                    (context as? ComponentActivity)?.finish()
-                },
+                onClick = { (context as? ComponentActivity)?.finish() },
                 colors = ButtonDefaults.buttonColors(
                     containerColor = Color(0xFFD32F2F),
                     contentColor = Color.White
@@ -515,6 +639,12 @@ fun EventDetailScreen(event: Event) {
     }
 }
 
+/**
+ * DetailRow: Displays a key-value pair in the EventDetailScreen.
+ *
+ * @param label The title (e.g., "📅 Date").
+ * @param value The value (e.g., "March 21, 2025").
+ */
 @Composable
 fun DetailRow(label: String, value: String) {
     Row(
@@ -540,71 +670,164 @@ fun DetailRow(label: String, value: String) {
 
 
 
-//------------------------------------HISTORY------------------------------------
+// ------------------------------------ HISTORY SCREEN ------------------------------------
+
+/**
+ * Displays the history of AI chat messages stored in the database.
+ *
+ * @param database The Room database instance containing chat messages.
+ */
 @Composable
-fun HistoryScreen() {
-    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-        Text(text = "History Page", style = MaterialTheme.typography.headlineMedium)
+fun HistoryScreen(database: ChatDatabase) {
+    val chatMessages by database.chatMessageDao().getAllMessages().collectAsState(initial = emptyList())
+    val coroutineScope = rememberCoroutineScope()
+    var isVisible by remember { mutableStateOf(false) } // Animation trigger
+
+    // ✅ Start animation on load
+    LaunchedEffect(Unit) { isVisible = true }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // ✅ Title Animation
+        AnimatedVisibility(
+            visible = isVisible,
+            enter = fadeIn(animationSpec = tween(1000)) + slideInVertically(initialOffsetY = { -50 })
+        ) {
+            Text(
+                text = "Chat History",
+                style = MaterialTheme.typography.headlineMedium,
+                color = Color(0xFFD32F2F), // ISEN Red
+                modifier = Modifier.padding(bottom = 16.dp)
+            )
+        }
+
+        // ✅ Clear History Button (Visible only if messages exist)
+        if (chatMessages.isNotEmpty()) {
+            Button(
+                onClick = { coroutineScope.launch { database.chatMessageDao().deleteAll() } },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFFD32F2F),
+                    contentColor = Color.White
+                ),
+                modifier = Modifier.padding(bottom = 16.dp)
+            ) {
+                Text("Clear History")
+            }
+        }
+
+        // ✅ No Messages Found
+        if (chatMessages.isEmpty()) {
+            Text(text = "No chat history available.", color = Color.Gray)
+        }
+        // ✅ Display Chat History List
+        else {
+            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                itemsIndexed(chatMessages) { index, message ->
+                    val backgroundColor =
+                        if (index % 2 == 0) Color(0xFFFFCCCC) else Color(0xFFFFE5E5) // Alternate colors
+
+                    AnimatedVisibility(
+                        visible = isVisible,
+                        enter = fadeIn(animationSpec = tween(500)) + slideInVertically(initialOffsetY = { 100 })
+                    ) {
+                        ChatHistoryCard(message, backgroundColor, database, coroutineScope)
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Displays a single chat history item in a Card layout.
+ *
+ * @param message The chat message object.
+ * @param backgroundColor The background color for alternating effect.
+ * @param database The Room database instance.
+ * @param coroutineScope Coroutine scope for database operations.
+ */
+@Composable
+fun ChatHistoryCard(
+    message: ChatMessage,
+    backgroundColor: Color,
+    database: ChatDatabase,
+    coroutineScope: CoroutineScope
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp, horizontal = 8.dp),
+        colors = CardDefaults.cardColors(containerColor = backgroundColor),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 4.dp),
+        shape = MaterialTheme.shapes.medium
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = "Question: ${message.question}",
+                style = MaterialTheme.typography.titleMedium,
+                color = Color(0xFFD32F2F) // ISEN Red
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = "Response: ${message.answer}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color(0xFF880E4F)
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = "Date: ${Date(message.timestamp)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = Color.Gray
+            )
+
+            // ✅ Delete Single Message Button
+            Button(
+                onClick = {
+                    coroutineScope.launch { database.chatMessageDao().deleteMessage(message) }
+                },
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = Color(0xFFB71C1C),
+                    contentColor = Color.White
+                ),
+                modifier = Modifier.padding(top = 8.dp)
+            ) {
+                Text("Delete")
+            }
+        }
     }
 }
 
 
 
-//------------------------------------MENU------------------------------------
+// ------------------------------------ BOTTOM NAVIGATION MENU ------------------------------------
+
+/**
+ * A bottom navigation bar with expandable menu options.
+ *
+ * @param navController The navigation controller to manage screen transitions.
+ * @param bottomPadding The padding required to accommodate system UI elements.
+ */
 @Composable
 fun BottomMenuBar(navController: NavHostController, bottomPadding: Dp) {
-    var isMenuExpanded by remember { mutableStateOf(false) }
+    var isMenuExpanded by remember { mutableStateOf(false) } // Track menu state
 
     Box(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.fillMaxWidth()) {
+
+            // ✅ Expandable Menu Section
             AnimatedVisibility(
                 visible = isMenuExpanded,
-                enter = slideInVertically(initialOffsetY = { it }),
-                exit = slideOutVertically(targetOffsetY = { it })
+                enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
+                exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceEvenly
-                    ) {
-                        Image(
-                            painter = painterResource(id = R.drawable.home),
-                            contentDescription = "Home",
-                            modifier = Modifier
-                                .size(50.dp)
-                                .clickable {
-                                    navController.navigate("home")
-                                    isMenuExpanded = false
-                                }
-                        )
-                        Image(
-                            painter = painterResource(id = R.drawable.event),
-                            contentDescription = "Event",
-                            modifier = Modifier
-                                .size(50.dp)
-                                .clickable {
-                                    navController.navigate("event")
-                                    isMenuExpanded = false
-                                }
-                        )
-                        Image(
-                            painter = painterResource(id = R.drawable.history),
-                            contentDescription = "History",
-                            modifier = Modifier
-                                .size(50.dp)
-                                .clickable {
-                                    navController.navigate("history")
-                                    isMenuExpanded = false
-                                }
-                        )
-                    }
-                }
+                MenuOptions(navController) { isMenuExpanded = false }
             }
+
+            // ✅ Bottom Menu Icon
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -623,4 +846,56 @@ fun BottomMenuBar(navController: NavHostController, bottomPadding: Dp) {
             }
         }
     }
+}
+
+/**
+ * Displays the menu options with navigation buttons.
+ *
+ * @param navController The navigation controller for handling navigation.
+ * @param onMenuClose Callback to close the menu after selecting an option.
+ */
+@Composable
+fun MenuOptions(navController: NavHostController, onMenuClose: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceEvenly
+        ) {
+            MenuItem(R.drawable.home, "Home") {
+                navController.navigate("home")
+                onMenuClose()
+            }
+            MenuItem(R.drawable.event, "Event") {
+                navController.navigate("event")
+                onMenuClose()
+            }
+            MenuItem(R.drawable.history, "History") {
+                navController.navigate("history")
+                onMenuClose()
+            }
+        }
+    }
+}
+
+/**
+ * A single menu item representing a navigation option.
+ *
+ * @param iconResId The resource ID for the icon.
+ * @param description The content description for accessibility.
+ * @param onClick Action to perform when clicked.
+ */
+@Composable
+fun MenuItem(iconResId: Int, description: String, onClick: () -> Unit) {
+    Image(
+        painter = painterResource(id = iconResId),
+        contentDescription = description,
+        modifier = Modifier
+            .size(50.dp)
+            .clickable(onClick = onClick)
+    )
 }
