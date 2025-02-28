@@ -4,12 +4,17 @@ package fr.isen.Bouhaben.isensmartcompanion
 
 
 // ------------------------------------ Imports ------------------------------------
+import android.app.AlarmManager
+import android.app.PendingIntent
+import android.content.Context
 import android.content.Intent
+import android.content.SharedPreferences
 import android.os.Bundle
 import android.os.Parcelable
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -82,8 +87,8 @@ import kotlinx.parcelize.Parcelize
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.GET
+import java.util.Calendar
 import java.util.Date
-
 
 
 // ------------------------------------ Structures ------------------------------------
@@ -562,14 +567,25 @@ fun EventDetailScreen(event: Event) {
     val context = LocalContext.current
     var isVisible by remember { mutableStateOf(false) }
 
-    // Start animation when the screen is displayed
+    // ✅ State to track if notifications are enabled
+    val prefs = context.getSharedPreferences("event_prefs", Context.MODE_PRIVATE)
+    var isNotified by remember { mutableStateOf(prefs.getBoolean(event.id, false)) }
+
+    // ✅ Toggle notification state & save in preferences
+    fun toggleNotification() {
+        isNotified = !isNotified
+        prefs.edit().putBoolean(event.id, isNotified).apply()
+        if (isNotified) scheduleNotification(context, event)
+    }
+
+    // ✅ Start animation when the screen is displayed
     LaunchedEffect(Unit) { isVisible = true }
 
     Column(
         modifier = Modifier.fillMaxSize(),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // ✅ Header Section with Animation
+        // ✅ Header Section with Animation (Title Only)
         AnimatedVisibility(
             visible = isVisible,
             enter = slideInVertically(initialOffsetY = { -it }) + fadeIn()
@@ -620,23 +636,70 @@ fun EventDetailScreen(event: Event) {
 
         Spacer(modifier = Modifier.height(24.dp))
 
-        // ✅ Back Button with Animation
+        // ✅ Bottom Row: Back Button & Notification Bell
         AnimatedVisibility(
             visible = isVisible,
             enter = fadeIn(animationSpec = tween(700)) + slideInVertically(initialOffsetY = { it / 2 })
         ) {
-            Button(
-                onClick = { (context as? ComponentActivity)?.finish() },
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color(0xFFD32F2F),
-                    contentColor = Color.White
-                ),
-                modifier = Modifier.padding(horizontal = 16.dp)
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(text = "Back to Events")
+                // ✅ Back Button
+                Button(
+                    onClick = { (context as? ComponentActivity)?.finish() },
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color(0xFFD32F2F),
+                        contentColor = Color.White
+                    )
+                ) {
+                    Text(text = "Back to Events")
+                }
+
+                // ✅ Notification Bell with Animated Transition
+                IconButton(
+                    onClick = { toggleNotification() },
+                    modifier = Modifier.size(64.dp) // 🔥 2x Size 🔥
+                ) {
+                    Crossfade(targetState = isNotified, animationSpec = tween(500)) { state ->
+                        Image(
+                            painter = painterResource(if (state) R.drawable.notifon else R.drawable.notifoff),
+                            contentDescription = "Notification Toggle",
+                            modifier = Modifier.size(64.dp) // 🔥 2x Size 🔥
+                        )
+                    }
+                }
             }
         }
     }
+}
+
+
+fun getNotificationState(sharedPreferences: SharedPreferences, eventId: String): Boolean {
+    return sharedPreferences.getBoolean(eventId, false)
+}
+
+fun saveNotificationState(sharedPreferences: SharedPreferences, eventId: String, isNotified: Boolean) {
+    sharedPreferences.edit().putBoolean(eventId, isNotified).apply()
+}
+
+fun scheduleNotification(context: Context, event: Event) {
+    val intent = Intent(context, NotificationHelper::class.java).apply {
+        putExtra("event_title", event.title)
+    }
+
+    val pendingIntent = PendingIntent.getBroadcast(
+        context, event.id.hashCode(), intent,
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+    )
+
+    val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+    val triggerTime = Calendar.getInstance().timeInMillis + 10_000 // 10 seconds later
+
+    alarmManager.setExact(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
 }
 
 /**
