@@ -171,17 +171,27 @@ fun AssistantUI(modifier: Modifier = Modifier) {
             .fillMaxSize()
             .padding(16.dp)
     ) {
-        // Chat Header
+        // Chat Header with ISEN Logo on the Top-Right
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(bottom = 16.dp),
-            horizontalArrangement = Arrangement.Center
+            horizontalArrangement = Arrangement.SpaceBetween, // Align text left & image right
+            verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 text = "ISEN BOT",
                 style = MaterialTheme.typography.headlineMedium,
                 color = Color(0xFFD32F2F)
+            )
+
+            // ISEN Logo
+            Image(
+                painter = painterResource(id = R.drawable.isen_logo), // Ensure the correct name
+                contentDescription = "ISEN Logo",
+                modifier = Modifier
+                    .size(80.dp) // Adjust size if needed
+                    .padding(8.dp)
             )
         }
 
@@ -246,6 +256,7 @@ fun AssistantUI(modifier: Modifier = Modifier) {
         }
     }
 }
+
 
 @Composable
 fun ChatBubble(message: String, isUser: Boolean) {
