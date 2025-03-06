@@ -4,11 +4,12 @@ package fr.isen.Bouhaben.isensmartcompanion
 
 
 // ------------------------------------ Imports ------------------------------------
+import android.annotation.SuppressLint
 import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
-import android.content.SharedPreferences
+import android.media.MediaPlayer
 import android.os.Bundle
 import android.os.Parcelable
 import androidx.activity.ComponentActivity
@@ -18,7 +19,6 @@ import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Image
@@ -248,29 +248,24 @@ fun AssistantUIPreview() {
  */
 @Composable
 fun MainScreen(navController: NavHostController, database: ChatDatabase) {
-    // Calculate bottom padding based on system navigation bars
     val bottomPadding = with(LocalDensity.current) {
         WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     }
 
     Scaffold(
         modifier = Modifier.fillMaxSize(),
-        containerColor = Color(0xFFFFF5F5), // Background color theme
-        bottomBar = {
-            BottomMenuBar(navController, bottomPadding)
-        }
+        containerColor = Color(0xFFFFF5F5),
+        bottomBar = { BottomMenuBar(navController, bottomPadding) }
     ) { innerPadding ->
-        NavHost(
-            navController,
-            startDestination = "home",
-            Modifier.padding(innerPadding)
-        ) {
+        NavHost(navController, startDestination = "home", Modifier.padding(innerPadding)) {
             composable("home") { AssistantUI(database) }
-            composable("event") { EventScreen() }
-            composable("history") { HistoryScreen(database) } // ✅ Pass database to history screen
+            composable("event") { EventScreen(navController) } // ✅ Pass navController for navigation
+            composable("history") { HistoryScreen(database) }
+            composable("calendar") { CalendarScreen() } // ✅ New Calendar Page
         }
     }
 }
+
 
 /**
  * Composable function for the main Assistant UI where users can chat with ISEN Bot.
@@ -305,12 +300,19 @@ fun AssistantUI(database: ChatDatabase) {
 
             // ✅ ISEN Logo
             Image(
-                painter = painterResource(id = R.drawable.isen_logo), // Ensure the image exists in resources
+                painter = painterResource(id = R.drawable.isen_logo),
                 contentDescription = "ISEN Logo",
                 modifier = Modifier
-                    .size(80.dp) // Adjust size if needed
+                    .size(80.dp)
                     .padding(8.dp)
             )
+        }
+
+        // ✅ Auto-Scroll to Bottom when New Message is Added
+        LaunchedEffect(chatMessages.size) {
+            if (chatMessages.isNotEmpty()) {
+                listState.animateScrollToItem(chatMessages.size - 1)
+            }
         }
 
         // ✅ Chat History Display
@@ -374,6 +376,7 @@ fun AssistantUI(database: ChatDatabase) {
         }
     }
 }
+
 
 /**
  * Composable function representing a single chat bubble in the conversation.
@@ -441,23 +444,23 @@ class EventDetailActivity : ComponentActivity() {
  * Fetches data from Firebase using Retrofit.
  */
 @Composable
-fun EventScreen() {
+fun EventScreen(navController: NavHostController) {
     val context = LocalContext.current
     var events by remember { mutableStateOf<List<Event>?>(null) }
     var isVisible by remember { mutableStateOf(false) }
     var isLoading by remember { mutableStateOf(true) }
     var errorMessage by remember { mutableStateOf<String?>(null) } // Store error messages
 
-    // Fetch events when screen is first displayed
+    // ✅ Fetch events when screen is first displayed
     LaunchedEffect(Unit) {
         isVisible = true
         try {
             val fetchedEvents = RetrofitInstance.api.getEvents()
             events = fetchedEvents
-            errorMessage = null // Reset error message on success
+            errorMessage = null
         } catch (e: Exception) {
             e.printStackTrace()
-            errorMessage = "Failed to load events: ${e.message}" // Display error
+            errorMessage = "Failed to load events: ${e.message}"
         } finally {
             isLoading = false
         }
@@ -470,17 +473,34 @@ fun EventScreen() {
         verticalArrangement = Arrangement.Top,
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        // ✅ Title Animation
-        AnimatedVisibility(
-            visible = isVisible,
-            enter = fadeIn(animationSpec = tween(1000)) + slideInVertically(initialOffsetY = { -50 })
+        // ✅ Title Animation & Calendar Icon
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(bottom = 16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Text(
-                text = "Upcoming Events",
-                style = MaterialTheme.typography.headlineMedium,
-                color = Color(0xFFD32F2F), // ISEN Theme Red
-                modifier = Modifier.padding(bottom = 16.dp)
-            )
+            AnimatedVisibility(
+                visible = isVisible,
+                enter = fadeIn(animationSpec = tween(1000)) + slideInVertically(initialOffsetY = { -50 })
+            ) {
+                Text(
+                    text = "Upcoming Events",
+                    style = MaterialTheme.typography.headlineMedium,
+                    color = Color(0xFFD32F2F),
+                    modifier = Modifier.padding(start = 16.dp)
+                )
+            }
+
+            // ✅ Calendar Button (Navigates to CalendarScreen)
+            IconButton(onClick = { navController.navigate("calendar") }) {
+                Image(
+                    painter = painterResource(id = R.drawable.calendar),
+                    contentDescription = "View Calendar",
+                    modifier = Modifier.size(50.dp)
+                )
+            }
         }
 
         // ✅ Loading Indicator
@@ -500,7 +520,7 @@ fun EventScreen() {
             LazyColumn(modifier = Modifier.fillMaxSize()) {
                 itemsIndexed(events!!) { index, event ->
                     val backgroundColor =
-                        if (index % 2 == 0) Color(0xFFFFCCCC) else Color(0xFFFFE5E5) // Alternate colors
+                        if (index % 2 == 0) Color(0xFFFFCCCC) else Color(0xFFFFE5E5)
 
                     AnimatedVisibility(
                         visible = isVisible,
@@ -513,6 +533,7 @@ fun EventScreen() {
         }
     }
 }
+
 
 /**
  * A single event card displaying event details.
@@ -571,11 +592,22 @@ fun EventDetailScreen(event: Event) {
     val prefs = context.getSharedPreferences("event_prefs", Context.MODE_PRIVATE)
     var isNotified by remember { mutableStateOf(prefs.getBoolean(event.id, false)) }
 
+    // ✅ Function to Play "ding.mp3" When Enabling Notifications
+    fun playDingSound() {
+        val mediaPlayer = MediaPlayer.create(context, R.raw.ding)
+        mediaPlayer.setOnCompletionListener { it.release() } // ✅ Release after playing
+        mediaPlayer.start()
+    }
+
     // ✅ Toggle notification state & save in preferences
     fun toggleNotification() {
         isNotified = !isNotified
         prefs.edit().putBoolean(event.id, isNotified).apply()
-        if (isNotified) scheduleNotification(context, event)
+
+        if (isNotified) {
+            playDingSound() // 🔔 Play sound only when enabling notifications
+            scheduleNotification(context, event) // ✅ Schedule event notification
+        }
     }
 
     // ✅ Start animation when the screen is displayed
@@ -659,7 +691,7 @@ fun EventDetailScreen(event: Event) {
                     Text(text = "Back to Events")
                 }
 
-                // ✅ Notification Bell with Animated Transition
+                // ✅ Notification Bell with Animated Transition & Sound Effect
                 IconButton(
                     onClick = { toggleNotification() },
                     modifier = Modifier.size(64.dp) // 🔥 2x Size 🔥
@@ -678,14 +710,8 @@ fun EventDetailScreen(event: Event) {
 }
 
 
-fun getNotificationState(sharedPreferences: SharedPreferences, eventId: String): Boolean {
-    return sharedPreferences.getBoolean(eventId, false)
-}
 
-fun saveNotificationState(sharedPreferences: SharedPreferences, eventId: String, isNotified: Boolean) {
-    sharedPreferences.edit().putBoolean(eventId, isNotified).apply()
-}
-
+@SuppressLint("ScheduleExactAlarm")
 fun scheduleNotification(context: Context, event: Event) {
     val intent = Intent(context, NotificationHelper::class.java).apply {
         putExtra("event_title", event.title)
@@ -731,6 +757,90 @@ fun DetailRow(label: String, value: String) {
     }
 }
 
+@Composable
+fun CalendarScreen() {
+    val context = LocalContext.current
+    val prefs = context.getSharedPreferences("event_prefs", Context.MODE_PRIVATE)
+
+    // ✅ Get all notified events from SharedPreferences
+    val notifiedEvents = remember {
+        val allEntries = prefs.all
+        allEntries.filter { it.value as Boolean }
+            .map { entry -> entry.key } // Get event IDs
+    }
+
+    val allEvents = remember { mutableStateOf<List<Event>>(emptyList()) }
+
+    // ✅ Fetch events to match with notified ones
+    LaunchedEffect(Unit) {
+        try {
+            val fetchedEvents = RetrofitInstance.api.getEvents()
+            allEvents.value = fetchedEvents.filter { notifiedEvents.contains(it.id) }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.Top,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        // ✅ Calendar Title
+        Text(
+            text = "Your Event Calendar",
+            style = MaterialTheme.typography.headlineMedium,
+            color = Color(0xFFD32F2F),
+            modifier = Modifier.padding(bottom = 16.dp)
+        )
+
+        if (allEvents.value.isEmpty()) {
+            Text(text = "No upcoming events in your calendar.", color = Color.Gray)
+        } else {
+            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                items(allEvents.value) { event ->
+                    CalendarEventCard(event)
+                }
+            }
+        }
+    }
+}
+
+/**
+ * A single event card for the calendar view.
+ */
+@Composable
+fun CalendarEventCard(event: Event) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp, horizontal = 8.dp),
+        colors = CardDefaults.cardColors(containerColor = Color(0xFFFFE5E5)),
+        elevation = CardDefaults.elevatedCardElevation(defaultElevation = 4.dp),
+        shape = MaterialTheme.shapes.medium
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Text(
+                text = event.title,
+                style = MaterialTheme.typography.titleMedium,
+                color = Color(0xFFD32F2F)
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = "📅 ${event.date}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color(0xFF880E4F)
+            )
+            Text(
+                text = "📍 ${event.location}",
+                style = MaterialTheme.typography.bodyMedium,
+                color = Color(0xFF880E4F)
+            )
+        }
+    }
+}
 
 
 // ------------------------------------ HISTORY SCREEN ------------------------------------
@@ -876,21 +986,76 @@ fun ChatHistoryCard(
  */
 @Composable
 fun BottomMenuBar(navController: NavHostController, bottomPadding: Dp) {
-    var isMenuExpanded by remember { mutableStateOf(false) } // Track menu state
+    var isMenuExpanded by remember { mutableStateOf(false) }
+    val context = LocalContext.current
+
+    // ✅ Function to Play Sound Effect
+    fun playSound() {
+        val mediaPlayer = MediaPlayer.create(context, R.raw.poc)
+        mediaPlayer.setOnCompletionListener { it.release() } // ✅ Release after playing
+        mediaPlayer.start()
+    }
 
     Box(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.fillMaxWidth()) {
-
-            // ✅ Expandable Menu Section
             AnimatedVisibility(
                 visible = isMenuExpanded,
-                enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-                exit = slideOutVertically(targetOffsetY = { it }) + fadeOut()
+                enter = slideInVertically(initialOffsetY = { it }),
+                exit = slideOutVertically(targetOffsetY = { it })
             ) {
-                MenuOptions(navController) { isMenuExpanded = false }
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceEvenly
+                    ) {
+                        // ✅ Home Button
+                        Image(
+                            painter = painterResource(id = R.drawable.home),
+                            contentDescription = "Home",
+                            modifier = Modifier
+                                .size(50.dp)
+                                .clickable {
+                                    playSound() // 🔊 Play sound
+                                    navController.navigate("home")
+                                    isMenuExpanded = false
+                                }
+                        )
+
+                        // ✅ Event Button
+                        Image(
+                            painter = painterResource(id = R.drawable.event),
+                            contentDescription = "Event",
+                            modifier = Modifier
+                                .size(50.dp)
+                                .clickable {
+                                    playSound() // 🔊 Play sound
+                                    navController.navigate("event")
+                                    isMenuExpanded = false
+                                }
+                        )
+
+                        // ✅ History Button
+                        Image(
+                            painter = painterResource(id = R.drawable.history),
+                            contentDescription = "History",
+                            modifier = Modifier
+                                .size(50.dp)
+                                .clickable {
+                                    playSound() // 🔊 Play sound
+                                    navController.navigate("history")
+                                    isMenuExpanded = false
+                                }
+                        )
+                    }
+                }
             }
 
-            // ✅ Bottom Menu Icon
+            // ✅ Menu Toggle Button
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -899,7 +1064,10 @@ fun BottomMenuBar(navController: NavHostController, bottomPadding: Dp) {
                 horizontalArrangement = Arrangement.Start,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                IconButton(onClick = { isMenuExpanded = !isMenuExpanded }) {
+                IconButton(onClick = {
+                    playSound() // 🔊 Play sound when opening menu
+                    isMenuExpanded = !isMenuExpanded
+                }) {
                     Image(
                         painter = painterResource(id = R.drawable.menu_icon),
                         contentDescription = "Menu",
@@ -909,56 +1077,4 @@ fun BottomMenuBar(navController: NavHostController, bottomPadding: Dp) {
             }
         }
     }
-}
-
-/**
- * Displays the menu options with navigation buttons.
- *
- * @param navController The navigation controller for handling navigation.
- * @param onMenuClose Callback to close the menu after selecting an option.
- */
-@Composable
-fun MenuOptions(navController: NavHostController, onMenuClose: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly
-        ) {
-            MenuItem(R.drawable.home, "Home") {
-                navController.navigate("home")
-                onMenuClose()
-            }
-            MenuItem(R.drawable.event, "Event") {
-                navController.navigate("event")
-                onMenuClose()
-            }
-            MenuItem(R.drawable.history, "History") {
-                navController.navigate("history")
-                onMenuClose()
-            }
-        }
-    }
-}
-
-/**
- * A single menu item representing a navigation option.
- *
- * @param iconResId The resource ID for the icon.
- * @param description The content description for accessibility.
- * @param onClick Action to perform when clicked.
- */
-@Composable
-fun MenuItem(iconResId: Int, description: String, onClick: () -> Unit) {
-    Image(
-        painter = painterResource(id = iconResId),
-        contentDescription = description,
-        modifier = Modifier
-            .size(50.dp)
-            .clickable(onClick = onClick)
-    )
 }
